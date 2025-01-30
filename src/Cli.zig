@@ -19,6 +19,12 @@ pub const CommandContext = struct {
     handler: Handler,
 };
 
+/// App is just a namespace and wrapper for `Command` struct.
+///
+/// `_internal` field represents the root command.
+///
+/// **Note**: **DO NOT** interact with the `_internal` field directly, instead use the provided builtin functions
+/// for creating, managing and operating the instance of `App` struct.
 pub const App = struct {
     _internal: Command,
 
