@@ -1,24 +1,37 @@
 const std = @import("std");
+const Cli = @import("Cli.zig");
 
-pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+const argsAlloc = std.process.argsAlloc;
+const argsFree = std.process.argsFree;
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+const APP_NAME = "sew";
+const APP_HELP =
+    \\ Manage your symlinks/shortcuts via a single file.
+;
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    try bw.flush(); // don't forget to flush!
+fn app_handler(context: *Cli.CliContext) void {
+    std.debug.print("Args count: {d}\n", .{context.osArgs.len});
+    for (context.osArgs) |arg| {
+        std.debug.print("Arg {s}\n", .{arg});
+    }
 }
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer {
+        const check = gpa.deinit();
+        if (check == .leak) {
+            @panic("Memory leak detected");
+        }
+    }
+    const app = Cli.App.init(APP_NAME, APP_HELP, &app_handler);
+    const allocator = gpa.allocator();
+
+    var osArgs = try argsAlloc(allocator);
+    defer argsFree(allocator, osArgs);
+
+    var res = Cli.CliContext.init(osArgs[1..]);
+    defer res.deinit();
+
+    app.run(&res);
 }
