@@ -38,23 +38,27 @@ pub fn main() !void {
             @panic("Memory leak detected");
         }
     }
-    const app = Cli.App.init(
-        APP_NAME,
-        APP_HELP,
-        &app_handler,
-        .{ .sub_commands = &[_]Cli.Command{
-            Cli.Command.init(.{
-                .name = "link",
-                .help = "Create symlinks relative to the current directory config",
-                .handler = &link_handler,
-            }),
-            Cli.Command.init(.{
-                .name = "unlink",
-                .help = "Removes symlinks relative to the current directory config",
-                .handler = &unlink_handler,
-            }),
-        } },
+
+    const app = Cli.init(
+        .{
+            .name = APP_NAME,
+            .help = APP_HELP,
+            .handler = &app_handler,
+            .sub_commands = &[_]Cli.Command{
+                Cli.Command.init(.{
+                    .name = "link",
+                    .help = "Create symlinks relative to the current directory config",
+                    .handler = &link_handler,
+                }),
+                Cli.Command.init(.{
+                    .name = "unlink",
+                    .help = "Removes symlinks relative to the current directory config",
+                    .handler = &unlink_handler,
+                }),
+            },
+        },
     );
+
     const allocator = gpa.allocator();
 
     var osArgs = try argsAlloc(allocator);
@@ -64,7 +68,7 @@ pub fn main() !void {
     defer res.deinit();
 
     const stdout = std.io.getStdOut().writer();
-    app.run(&res) catch |e| switch (e) {
+    Cli.run(&app, &res) catch |e| switch (e) {
         error.InvalidCommand => {
             try std.fmt.format(stdout, "Invalid command\n\n", .{});
             try app.display_help(stdout);

@@ -17,68 +17,36 @@ pub const CommandContext = struct {
     name: []const u8,
     help: []const u8,
     handler: Handler,
+    sub_commands: []const Command = undefined,
 };
 
-pub const AppContext = struct {
-    sub_commands: []const Command,
-};
+pub fn init(comptime context: CommandContext) Command {
+    return Command.init(context);
+}
 
-/// App is just a namespace and wrapper for `Command` struct.
-///
-/// `_internal` field represents the root command.
-///
-/// **Note**: **DO NOT** interact with the `_internal` field directly, instead use the provided builtin functions
-/// for creating, managing and operating the instance of `App` struct.
-pub const App = struct {
-    _internal: Command,
-    context: AppContext,
+pub fn run(cmd: *const Command, cliContext: *CliContext) !void {
+    const first_arg = cliContext.os_args[0];
 
-    const Self = @This();
-
-    pub fn init(
-        comptime name: []const u8,
-        comptime help: []const u8,
-        comptime handler: Handler,
-        comptime context: AppContext,
-    ) Self {
-        return .{
-            ._internal = Command.init(.{
-                .name = name,
-                .help = help,
-                .handler = handler,
-            }),
-            .context = context,
-        };
-    }
-
-    pub fn run(self: *const Self, cliContext: *CliContext) !void {
-        const first_arg = cliContext.os_args[0];
-
-        // If the first argument is a flag then hand of the `CliContext` to App `Handler`.
-        //
-        // If not, an assumption is made and the argument is considered a sub_command.
-        if (Flag.arg_is_flag(first_arg)) {
-            self._internal.run(cliContext);
-            return;
-        } else {
-            // Match the first_arg with sub_command names
-            for (self.context.sub_commands) |cmd| {
-                if (std.mem.eql(u8, cmd.context.name, first_arg)) {
-                    // Mark CliContext to be a sub_command
-                    cliContext.is_subcommand = true;
-                    cmd.run(cliContext);
-                    return;
-                }
+    // If the first argument is a flag then hand of the `CliContext` to App `Handler`.
+    //
+    // If not, an assumption is made and the argument is considered a sub_command.
+    if (Flag.arg_is_flag(first_arg)) {
+        cmd.run(cliContext);
+        return;
+    } else {
+        // Match the first_arg with sub_command names
+        for (cmd.context.sub_commands) |sub| {
+            if (std.mem.eql(u8, sub.context.name, first_arg)) {
+                // Mark CliContext to be a sub_command
+                cliContext.is_subcommand = true;
+                sub.run(cliContext);
+                return;
             }
-
-            return CliError.InvalidCommand;
         }
-    }
 
-    pub fn display_help(self: *const Self, writer: anytype) !void {
-        try self._internal.display_help(writer);
+        return CliError.InvalidCommand;
     }
-};
+}
 
 pub const Command = struct {
     context: CommandContext,
