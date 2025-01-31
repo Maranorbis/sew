@@ -5,6 +5,8 @@ const Allocator = std.mem.Allocator;
 
 pub const OSArgs = []const [:0]u8;
 pub const Handler = *const fn (*CliContext) void;
+pub const LookupMapEntry = struct { []const u8, usize };
+pub const LookupMap = std.StaticStringMap(usize);
 
 pub const FlagError = error{InvalidFlag};
 pub const CommandError = error{InvalidCommand};
@@ -17,7 +19,7 @@ pub const CommandContext = struct {
     name: []const u8,
     help: []const u8,
     handler: Handler,
-    sub_commands: []const Command = undefined,
+    sub_commands: []const Command = &[_]Command{},
 };
 
 pub fn init(comptime context: CommandContext) Command {
@@ -50,11 +52,30 @@ pub fn run(cmd: *const Command, cliContext: *CliContext) !void {
 
 pub const Command = struct {
     context: CommandContext,
+    lookup_map: LookupMap = undefined,
 
     const Self = @This();
 
     pub fn init(comptime context: CommandContext) Self {
-        return .{ .context = context };
+        if (context.sub_commands.len == 0) {
+            return .{ .context = context };
+        }
+
+        // Build a comptime array of map entries
+        const lookup_map_entries = comptime blk: {
+            var entries: [context.sub_commands.len]LookupMapEntry = undefined;
+
+            for (context.sub_commands, 0..) |sub, i| {
+                entries[i] = .{ sub.context.name, i };
+            }
+
+            break :blk entries[0..];
+        };
+
+        return .{
+            .context = context,
+            .lookup_map = LookupMap.initComptime(lookup_map_entries),
+        };
     }
 
     pub fn run(self: *const Self, cliContext: *CliContext) void {
