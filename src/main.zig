@@ -1,29 +1,7 @@
 const std = @import("std");
 const Cli = @import("Cli.zig");
 
-fn app_handler(app: *const Cli.App(AppCommand), cmd: []const u8) void {
-    const sub_cmd: AppCommand = std.meta.stringToEnum(AppCommand, cmd) orelse {
-        std.fmt.format(std.io.getStdOut().writer(), "Command {s} does not exist.\n", .{cmd}) catch {
-            std.process.exit(1);
-        };
-        app.help();
-        std.process.exit(1);
-    };
-
-    switch (sub_cmd) {
-        .link => app.execute(sub_cmd),
-    }
-}
-
-fn app_help() void {
-    std.io.getStdOut().writer().writeAll(
-        \\Sew, manage your symlinks effortlessly
-    ) catch return;
-}
-
-const AppCommand = enum {
-    link,
-};
+const SubCommand = enum { sew, link, unlink, help };
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -34,14 +12,31 @@ pub fn main() !void {
         }
     }
 
-    const app = Cli.App(AppCommand).init(&app_help, &app_handler, .{
-        Cli.Command(AppCommand).init(.link, &app_help, &app_help),
+    const app = Cli.Command(SubCommand).init(.sew, &handler, .{
+        Cli.Command(SubCommand).init(.link, &linkHandler, .{
+            Cli.Command(SubCommand).init(.help, &linkHelp, .{}),
+        }),
+        Cli.Command(SubCommand).init(.unlink, &unlinkHandler, .{}),
     });
 
     var it = try std.process.argsWithAllocator(gpa.allocator());
-    defer it.deinit();
-
     _ = it.skip();
 
-    app.run(&it);
+    try app.run(&it);
+}
+
+fn handler(context: Cli.Context(SubCommand)) void {
+    std.debug.print("Hello from {s}", .{context.parent.get_name() orelse ""});
+}
+
+fn linkHandler(context: Cli.Context(SubCommand)) void {
+    std.debug.print("Hello from {s}", .{context.parent.get_name() orelse ""});
+}
+
+fn linkHelp(context: Cli.Context(SubCommand)) void {
+    std.debug.print("Hello from link {s}", .{context.parent.get_name() orelse ""});
+}
+
+fn unlinkHandler(context: Cli.Context(SubCommand)) void {
+    std.debug.print("Hello from {s}", .{context.parent.get_name() orelse ""});
 }
