@@ -4,31 +4,19 @@ const Cli = @import("Cli.zig");
 const argsAlloc = std.process.argsAlloc;
 const argsFree = std.process.argsFree;
 
-const APP_NAME = "sew";
-const APP_HELP =
-    \\Manage your symlinks/shortcuts via a single file.
-;
-
-fn app_handler(context: *Cli.CliContext) void {
-    std.debug.print("Args count: {d}\n", .{context.os_args.len});
-    for (context.os_args) |arg| {
-        std.debug.print("Arg {s}\n", .{arg});
-    }
+fn app_handler() void {
+    std.io.getStdOut().writer().writeAll("Sew") catch return;
 }
 
-fn link_handler(context: *Cli.CliContext) void {
-    std.debug.print("Link Args count: {d}\n", .{context.os_args.len});
-    for (context.os_args) |arg| {
-        std.debug.print("Arg {s}\n", .{arg});
-    }
+fn app_help() void {
+    std.io.getStdOut().writer().writeAll(
+        \\Sew, manage your symlinks effortlessly
+    ) catch return;
 }
 
-fn unlink_handler(context: *Cli.CliContext) void {
-    std.debug.print("Unlink Args count: {d}\n", .{context.os_args.len});
-    for (context.os_args) |arg| {
-        std.debug.print("Arg {s}\n", .{arg});
-    }
-}
+const SubCommands = enum {
+    link,
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -39,41 +27,9 @@ pub fn main() !void {
         }
     }
 
-    const app = Cli.init(
-        .{
-            .name = APP_NAME,
-            .help = APP_HELP,
-            .handler = &app_handler,
-            .sub_commands = &[_]Cli.Command{
-                Cli.Command.init(.{
-                    .name = "link",
-                    .help = "Create symlinks relative to the current directory config",
-                    .handler = &link_handler,
-                }),
-                Cli.Command.init(.{
-                    .name = "unlink",
-                    .help = "Removes symlinks relative to the current directory config",
-                    .handler = &unlink_handler,
-                }),
-            },
-        },
-    );
+    const app = Cli.App(SubCommands).init("sew", &app_help, &app_handler, .{
+        Cli.Command(SubCommands).init(.link, &app_help, &app_handler),
+    });
 
-    const allocator = gpa.allocator();
-
-    var osArgs = try argsAlloc(allocator);
-    defer argsFree(allocator, osArgs);
-
-    var res = Cli.CliContext.init(osArgs[1..]);
-    defer res.deinit();
-
-    const stdout = std.io.getStdOut().writer();
-    Cli.run(&app, &res) catch |e| switch (e) {
-        error.InvalidCommand => {
-            try std.fmt.format(stdout, "Invalid command\n\n", .{});
-            try app.display_help(stdout);
-        },
-
-        else => try std.fmt.format(stdout, "Something went wrong: {s}", .{@errorName(e)}),
-    };
+    app.run();
 }
