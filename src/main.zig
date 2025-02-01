@@ -28,7 +28,7 @@ pub fn main() !void {
     }
 
     const app = Cli.App(SubCommands).init("sew", &app_help, &app_handler, .{
-        Cli.Command(SubCommands).init(.link, &app_help, &app_handler),
+        Cli.Command(SubCommands).init(.link, &app_help, &app_handler, .{}),
     });
 
     app.run();

@@ -68,6 +68,7 @@ pub fn Command(comptime T: type) type {
         name: T,
         help: HelpFunc,
         handler: Handler,
+        sub_commands: []const Command(T) = undefined,
 
         const Self = @This();
 
@@ -75,16 +76,46 @@ pub fn Command(comptime T: type) type {
             comptime name: T,
             comptime help: HelpFunc,
             comptime handler: Handler,
+            comptime sub_commands: anytype,
         ) Self {
-            if (@typeInfo(T) != .Enum) {
-                @compileError("Expected Command(T) to be an enum, got Command(" ++ @typeName(@TypeOf(T)) ++ ")");
+            if (@typeInfo(T) == .Void) {
+                return .{
+                    .name = name,
+                    .help = help,
+                    .handler = handler,
+                };
             }
+
+            if (@typeInfo(T) != .Enum) {
+                @compileError("Expected App(T) to be an enum, got App(" ++ @typeName(@TypeOf(T)) ++ ")");
+            }
+
+            const sub_commands_type = @typeInfo(@TypeOf(sub_commands));
+            if (!sub_commands_type.Struct.is_tuple) {
+                @compileError("Expected subcommands to be of type tuple, got " ++ @typeName(@TypeOf(sub_commands)));
+            }
+
+            const sub_commands_arr = comptime blk: {
+                const length = sub_commands_type.Struct.fields.len;
+                var cmd_arr: [length]Command(T) = undefined;
+
+                for (sub_commands_type.Struct.fields, 0..) |sub, i| {
+                    cmd_arr[i] = @field(sub_commands, sub.name);
+                }
+
+                break :blk cmd_arr;
+            };
 
             return .{
                 .name = name,
                 .help = help,
                 .handler = handler,
+                .sub_commands = sub_commands_arr[0..],
             };
+        }
+
+        pub fn run(self: *const Self) void {
+            self.handler();
         }
 
         pub fn get_name(self: *const Self) []const u8 {
