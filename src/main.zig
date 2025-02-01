@@ -1,11 +1,18 @@
 const std = @import("std");
 const Cli = @import("Cli.zig");
 
-const argsAlloc = std.process.argsAlloc;
-const argsFree = std.process.argsFree;
+fn app_handler(app: *const Cli.App(AppCommand), cmd: []const u8) void {
+    const sub_cmd: AppCommand = std.meta.stringToEnum(AppCommand, cmd) orelse {
+        std.fmt.format(std.io.getStdOut().writer(), "Command {s} does not exist.\n", .{cmd}) catch {
+            std.process.exit(1);
+        };
+        app.help();
+        std.process.exit(1);
+    };
 
-fn app_handler() void {
-    std.io.getStdOut().writer().writeAll("Sew") catch return;
+    switch (sub_cmd) {
+        .link => app.execute(sub_cmd),
+    }
 }
 
 fn app_help() void {
@@ -28,8 +35,13 @@ pub fn main() !void {
     }
 
     const app = Cli.App(AppCommand).init(&app_help, &app_handler, .{
-        Cli.Command(AppCommand).init(.link, &app_help, &app_handler),
+        Cli.Command(AppCommand).init(.link, &app_help, &app_help),
     });
 
-    app.run();
+    var it = try std.process.argsWithAllocator(gpa.allocator());
+    defer it.deinit();
+
+    _ = it.skip();
+
+    app.run(&it);
 }

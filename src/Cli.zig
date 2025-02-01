@@ -3,20 +3,25 @@ const meta = std.meta;
 const panic = std.debug.panic;
 
 const Allocator = std.mem.Allocator;
-const Handler = *const fn () void;
-const HelpFunc = *const fn () void;
+const ArgIterator = std.process.ArgIterator;
+
+pub const HelpFunc = *const fn () void;
+pub const CmdFunc = *const fn () void;
+pub const LookupMap = std.StaticStringMap(usize);
+pub const LookupMapEntry = struct { []const u8, usize };
 
 pub fn App(comptime T: type) type {
     return struct {
         help: HelpFunc,
-        handler: Handler,
-        sub_commands: []const Command(T) = undefined,
+        handler: *const fn (*const @This(), []const u8) void,
+        commands: []const Command(T) = undefined,
+        _cmd_lookup_map: LookupMap = undefined,
 
         const Self = @This();
 
         pub fn init(
             comptime help: HelpFunc,
-            comptime handler: Handler,
+            comptime handler: *const fn (*const @This(), []const u8) void,
             comptime sub_commands: anytype,
         ) Self {
             if (@typeInfo(T) == .Void) {
@@ -35,26 +40,64 @@ pub fn App(comptime T: type) type {
                 @compileError("Expected subcommands to be of type tuple, got " ++ @typeName(@TypeOf(sub_commands)));
             }
 
-            const sub_commands_arr = comptime blk: {
-                const length = sub_commands_type.Struct.fields.len;
-                var cmd_arr: [length]Command(T) = undefined;
+            const length = sub_commands_type.Struct.fields.len;
+            const cmd_arr = comptime blk: {
+                var arr: [length]Command(T) = undefined;
 
                 for (sub_commands_type.Struct.fields, 0..) |sub, i| {
-                    cmd_arr[i] = @field(sub_commands, sub.name);
+                    arr[i] = @field(sub_commands, sub.name);
                 }
 
-                break :blk cmd_arr;
+                break :blk arr;
+            };
+
+            const cmd_entries = comptime blk: {
+                var arr: [length]LookupMapEntry = undefined;
+
+                for (cmd_arr, 0..) |cmd, i| {
+                    const key = std.enums.tagName(T, cmd.name);
+                    if (key == null) {
+                        @compileError("Got null while converting enum to string, " ++ @typeInfo(@TypeOf(cmd)));
+                    }
+
+                    arr[i] = LookupMapEntry{ key.?, i };
+                }
+
+                break :blk arr;
             };
 
             return .{
                 .help = help,
                 .handler = handler,
-                .sub_commands = sub_commands_arr[0..],
+                .commands = cmd_arr[0..],
+                ._cmd_lookup_map = LookupMap.initComptime(cmd_entries),
             };
         }
 
-        pub fn run(self: *const Self) void {
-            self.handler();
+        pub fn execute(self: *const Self, cmd: T) void {
+            const key = std.enums.tagName(T, cmd).?;
+
+            self.get_command(key).handler();
+        }
+
+        pub fn get_command(self: *const Self, name: []const u8) *const Command(T) {
+            const index = self._cmd_lookup_map.get(name);
+            if (index == null) {
+                std.fmt.format(std.io.getStdOut().writer(), "Command {s} does not exist.\n", .{name}) catch {
+                    std.process.exit(1);
+                };
+                std.process.exit(1);
+            }
+
+            return &self.commands[index.?];
+        }
+
+        pub fn run(self: *const Self, argIterator: *ArgIterator) void {
+            const arg = argIterator.next() orelse {
+                self.help();
+                std.process.exit(1);
+            };
+            self.handler(self, arg);
         }
     };
 }
@@ -63,14 +106,14 @@ pub fn Command(comptime T: type) type {
     return struct {
         name: T,
         help: HelpFunc,
-        handler: Handler,
+        handler: CmdFunc,
 
         const Self = @This();
 
         pub fn init(
             comptime name: T,
             comptime help: HelpFunc,
-            comptime handler: Handler,
+            comptime handler: CmdFunc,
         ) Self {
             return .{
                 .name = name,
