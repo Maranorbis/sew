@@ -1,24 +1,55 @@
 const std = @import("std");
+const Cli = @import("Cli.zig");
+
+const SubCommand = enum { sew, link, unlink, help };
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer {
+        const check = gpa.deinit();
+        if (check == .leak) {
+            @panic("Memory leak detected");
+        }
+    }
+    const allocator = gpa.allocator();
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+    const app = Cli.Command(SubCommand).init(.sew, &handler,
+        \\--test   -t  example for testing flag support
+        \\
+    , .{
+        Cli.Command(SubCommand).init(.link, &linkHandler, "", .{}),
+        Cli.Command(SubCommand).init(.unlink, &unlinkHandler, "", .{}),
+    });
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+    var it = try std.process.argsWithAllocator(allocator);
+    defer it.deinit();
+    _ = it.skip();
 
-    try bw.flush(); // don't forget to flush!
+    const stderr = std.io.getStdErr().writer();
+    app.run(allocator, &it, stderr);
 }
 
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
+fn handler(context: Cli.Context(SubCommand)) void {
+    defer context.deinit();
+    std.debug.print("Hello from {s}\n", .{context.parent.get_name()});
+
+    var it = context.flags.iterator();
+    while (it.next()) |entry| {
+        std.debug.print("Key: {s}, Value: {s}", .{
+            entry.key_ptr.*,
+            entry.value_ptr.*,
+        });
+    }
+}
+
+fn linkHandler(context: Cli.Context(SubCommand)) void {
+    std.debug.print("Hello from {s}", .{context.parent.get_name()});
+}
+
+fn linkHelp(context: Cli.Context(SubCommand)) void {
+    std.debug.print("Hello from link {s}", .{context.parent.get_name()});
+}
+
+fn unlinkHandler(context: Cli.Context(SubCommand)) void {
+    std.debug.print("Hello from {s}", .{context.parent.get_name()});
 }
