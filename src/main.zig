@@ -12,9 +12,12 @@ pub fn main() !void {
         }
     }
 
-    const app = Cli.Command(SubCommand).init(.sew, &handler, .{
-        Cli.Command(SubCommand).init(.link, &linkHandler, .{}),
-        Cli.Command(SubCommand).init(.unlink, &unlinkHandler, .{}),
+    const app = Cli.Command(SubCommand).init(.sew, &handler,
+        \\--test   -t  example for testing flag support
+        \\
+    , .{
+        Cli.Command(SubCommand).init(.link, &linkHandler, "", .{}),
+        Cli.Command(SubCommand).init(.unlink, &unlinkHandler, "", .{}),
     });
 
     var it = try std.process.argsWithAllocator(gpa.allocator());
@@ -25,7 +28,7 @@ pub fn main() !void {
 }
 
 fn handler(context: Cli.Context(SubCommand)) void {
-    std.debug.print("Hello from {s}", .{context.parent.get_name() orelse ""});
+    std.debug.print("Hello from {s}\n", .{context.parent.get_name() orelse ""});
 }
 
 fn linkHandler(context: Cli.Context(SubCommand)) void {
