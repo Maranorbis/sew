@@ -11,6 +11,7 @@ pub fn main() !void {
             @panic("Memory leak detected");
         }
     }
+    const allocator = gpa.allocator();
 
     const app = Cli.Command(SubCommand).init(.sew, &handler,
         \\--test   -t  example for testing flag support
@@ -20,25 +21,35 @@ pub fn main() !void {
         Cli.Command(SubCommand).init(.unlink, &unlinkHandler, "", .{}),
     });
 
-    var it = try std.process.argsWithAllocator(gpa.allocator());
+    var it = try std.process.argsWithAllocator(allocator);
+    defer it.deinit();
     _ = it.skip();
 
     const stderr = std.io.getStdErr().writer();
-    app.run(&it, stderr);
+    app.run(allocator, &it, stderr);
 }
 
 fn handler(context: Cli.Context(SubCommand)) void {
-    std.debug.print("Hello from {s}\n", .{context.parent.get_name() orelse ""});
+    defer context.deinit();
+    std.debug.print("Hello from {s}\n", .{context.parent.get_name()});
+
+    var it = context.flags.iterator();
+    while (it.next()) |entry| {
+        std.debug.print("Key: {s}, Value: {s}", .{
+            entry.key_ptr.*,
+            entry.value_ptr.*,
+        });
+    }
 }
 
 fn linkHandler(context: Cli.Context(SubCommand)) void {
-    std.debug.print("Hello from {s}", .{context.parent.get_name() orelse ""});
+    std.debug.print("Hello from {s}", .{context.parent.get_name()});
 }
 
 fn linkHelp(context: Cli.Context(SubCommand)) void {
-    std.debug.print("Hello from link {s}", .{context.parent.get_name() orelse ""});
+    std.debug.print("Hello from link {s}", .{context.parent.get_name()});
 }
 
 fn unlinkHandler(context: Cli.Context(SubCommand)) void {
-    std.debug.print("Hello from {s}", .{context.parent.get_name() orelse ""});
+    std.debug.print("Hello from {s}", .{context.parent.get_name()});
 }

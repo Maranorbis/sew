@@ -9,6 +9,9 @@ const ArgIterator = std.process.ArgIterator;
 pub const LookupMap = std.StaticStringMap(usize);
 pub const LookupMapEntry = struct { []const u8, usize };
 
+pub const FlagMap = std.StringHashMap([]const u8);
+pub const FlagMapEntry = struct { []const u8, []const u8 };
+
 pub const Set = std.StaticStringMap(void);
 pub const SetEntry = struct { []const u8 };
 
@@ -49,9 +52,7 @@ pub fn Command(comptime T: type) type {
                     const cmd = @field(commands, sub.name);
                     arr[i] = cmd;
 
-                    const key = cmd.get_name() orelse
-                        @compileError("Got null while converting enum to string, " ++ @typeInfo(@TypeOf(cmd)));
-                    entries[i] = LookupMapEntry{ key, i };
+                    entries[i] = LookupMapEntry{ cmd.get_name(), i };
                 }
 
                 break :blk .{ arr, entries };
@@ -87,31 +88,14 @@ pub fn Command(comptime T: type) type {
                 .name = name,
                 .handler = handler,
                 .commands = cmd_arr[0..],
-                .lookup_map = LookupMap.initComptime(cmd_entries),
                 .options = options,
+                .lookup_map = LookupMap.initComptime(cmd_entries),
                 .flags = Set.initComptime(set_entries),
             };
         }
 
-        pub fn run(self: *const Self, argIterator: *ArgIterator, stderr: anytype) void {
-            var cmd = self;
-
-            while (argIterator.next()) |arg| {
-                cmd = cmd.get_command(arg) catch |e| switch (e) {
-                    error.DoesNotExist => {
-                        fmt.format(stderr, "Command {s} does not exist.\n", .{arg}) catch |f| {
-                            panic("Something went wrong while writing to stderr.\nError: {s}\n", .{@errorName(f)});
-                        };
-                        process.exit(1);
-                    },
-                };
-            }
-
-            cmd.handler(Context(T).init(cmd, &cmd.commands, &cmd.flags, &cmd.lookup_map));
-        }
-
-        pub fn get_name(self: *const Self) ?[]const u8 {
-            return std.enums.tagName(T, self.name);
+        pub fn get_name(self: *const Self) []const u8 {
+            return std.enums.tagName(T, self.name).?;
         }
 
         pub fn get_command(self: *const Self, cmd: []const u8) CommandError!*const Command(T) {
@@ -122,6 +106,94 @@ pub fn Command(comptime T: type) type {
             const index = self.lookup_map.get(cmd).?;
             return &self.commands[index];
         }
+
+        pub fn contains_flag(self: *const Self, name: []const u8) bool {
+            return self.flags.has(name);
+        }
+
+        pub fn run(self: *const Self, allocator: Allocator, argIterator: *ArgIterator, stderr: anytype) void {
+            var cmd = self;
+            var parsed_flag_map = FlagMap.init(allocator);
+
+            while (argIterator.next()) |arg| {
+                if (arg_is_flag(arg)) {
+                    const key, const value = blk: {
+                        const separator_count = std.mem.count(u8, arg, Flag.SEPARATOR);
+                        const prefix_count = std.mem.count(u8, arg, Flag.SHORT_PREFIX);
+
+                        if (prefix_count < 1) {
+                            fmt.format(
+                                stderr,
+                                "Malformed flag {s}, A flag should be prefixed with either `--` or `-`.\n",
+                                .{arg},
+                            ) catch |f| {
+                                panic("Something went wrong while writing to stderr.\nError: {s}\n", .{@errorName(f)});
+                            };
+                            process.exit(1);
+                        }
+
+                        if (separator_count > 1) {
+                            fmt.format(
+                                stderr,
+                                "Found `=` {d} times in {s}, A flag should only have at max a single separator.",
+                                .{ separator_count, arg },
+                            ) catch |f| {
+                                panic("Something went wrong while writing to stderr.\nError: {s}\n", .{@errorName(f)});
+                            };
+                            process.exit(1);
+                        }
+
+                        var splitIter = std.mem.splitScalar(u8, arg, Flag.SEPARATOR[0]);
+                        break :blk .{
+                            splitIter.next().?,
+                            splitIter.next() orelse "",
+                        };
+                    };
+
+                    if (!self.contains_flag(key)) {
+                        fmt.format(stderr, "Flag {s} does not exists for Command {s}", .{ key, self.get_name() }) catch |f| {
+                            panic("Something went wrong while writing to stderr.\nError: {s}\n", .{@errorName(f)});
+                        };
+                        process.exit(1);
+                    }
+
+                    parsed_flag_map.put(key, value) catch {
+                        fmt.format(stderr, "Allocator Error: Unable to parse provided flags.\n", .{}) catch |f| {
+                            panic("Something went wrong while writing to stderr.\nError: {s}\n", .{@errorName(f)});
+                        };
+                        process.exit(1);
+                    };
+                } else {
+                    if (parsed_flag_map.count() > 0) {
+                        fmt.format(
+                            stderr,
+                            \\Invalid command format, flags and commands cannot be mixed in-between each other.
+                            \\
+                            \\Valid Usage:
+                            \\
+                            \\app cmd1 --foo=bar --bar=baz --baz=foo
+                            \\app --foo=bar
+                        ,
+                            .{},
+                        ) catch |f| {
+                            panic("Something went wrong while writing to stderr.\nError: {s}\n", .{@errorName(f)});
+                        };
+                        process.exit(1);
+                    }
+
+                    cmd = cmd.get_command(arg) catch |e| switch (e) {
+                        error.DoesNotExist => {
+                            fmt.format(stderr, "Command {s} does not exist.\n", .{arg}) catch |f| {
+                                panic("Something went wrong while writing to stderr.\nError: {s}\n", .{@errorName(f)});
+                            };
+                            process.exit(1);
+                        },
+                    };
+                }
+            }
+
+            cmd.handler(Context(T).init(cmd, &cmd.commands, &parsed_flag_map, &cmd.lookup_map));
+        }
     };
 }
 
@@ -129,7 +201,7 @@ pub fn Context(comptime T: type) type {
     return struct {
         parent: *const Command(T),
         commands: *const []const Command(T),
-        flags: *const Set,
+        flags: *FlagMap,
         lookup_map: *const LookupMap,
 
         const Self = @This();
@@ -137,7 +209,7 @@ pub fn Context(comptime T: type) type {
         pub fn init(
             parent: *const Command(T),
             commands: *const []const Command(T),
-            flags: *const Set,
+            flags: *FlagMap,
             lookup_map: *const LookupMap,
         ) Self {
             return .{
@@ -147,5 +219,19 @@ pub fn Context(comptime T: type) type {
                 .lookup_map = lookup_map,
             };
         }
+
+        pub fn deinit(self: *const Self) void {
+            self.flags.deinit();
+        }
     };
+}
+
+pub const Flag = struct {
+    const SEPARATOR = "=";
+    const LONG_PREFIX = "--";
+    const SHORT_PREFIX = "-";
+};
+
+fn arg_is_flag(arg: []const u8) bool {
+    return std.mem.startsWith(u8, arg, Flag.LONG_PREFIX) or std.mem.startsWith(u8, arg, Flag.SHORT_PREFIX);
 }
