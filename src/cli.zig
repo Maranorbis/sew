@@ -1,4 +1,6 @@
 const std = @import("std");
+const fmt = std.fmt;
+const process = std.process;
 const panic = std.debug.panic;
 
 const Allocator = std.mem.Allocator;
@@ -6,6 +8,8 @@ const ArgIterator = std.process.ArgIterator;
 
 pub const LookupMap = std.StaticStringMap(usize);
 pub const LookupMapEntry = struct { []const u8, usize };
+
+pub const CommandError = error{DoesNotExist};
 
 pub fn Command(comptime T: type) type {
     return struct {
@@ -62,11 +66,18 @@ pub fn Command(comptime T: type) type {
             };
         }
 
-        pub fn run(self: *const Self, argIterator: *ArgIterator) !void {
+        pub fn run(self: *const Self, argIterator: *ArgIterator, stderr: anytype) void {
             var cmd = self;
 
             while (argIterator.next()) |arg| {
-                cmd = try cmd.get_command(arg);
+                cmd = cmd.get_command(arg) catch |e| switch (e) {
+                    error.DoesNotExist => {
+                        fmt.format(stderr, "Command {s} does not exist.\n", .{arg}) catch |f| {
+                            panic("Something went wrong while writing to stderr.\nError: {s}\n", .{@errorName(f)});
+                        };
+                        process.exit(1);
+                    },
+                };
             }
 
             cmd.handler(Context(T).init(cmd, &cmd.commands, &cmd.lookup_map));
@@ -76,9 +87,9 @@ pub fn Command(comptime T: type) type {
             return std.enums.tagName(T, self.name);
         }
 
-        pub fn get_command(self: *const Self, cmd: []const u8) !*const Command(T) {
+        pub fn get_command(self: *const Self, cmd: []const u8) CommandError!*const Command(T) {
             if (!self.lookup_map.has(cmd)) {
-                return error.CommandDoesNotExist;
+                return error.DoesNotExist;
             }
 
             const index = self.lookup_map.get(cmd).?;

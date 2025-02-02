@@ -13,16 +13,15 @@ pub fn main() !void {
     }
 
     const app = Cli.Command(SubCommand).init(.sew, &handler, .{
-        Cli.Command(SubCommand).init(.link, &linkHandler, .{
-            Cli.Command(SubCommand).init(.help, &linkHelp, .{}),
-        }),
+        Cli.Command(SubCommand).init(.link, &linkHandler, .{}),
         Cli.Command(SubCommand).init(.unlink, &unlinkHandler, .{}),
     });
 
     var it = try std.process.argsWithAllocator(gpa.allocator());
     _ = it.skip();
 
-    try app.run(&it);
+    const stderr = std.io.getStdErr().writer();
+    app.run(&it, stderr);
 }
 
 fn handler(context: Cli.Context(SubCommand)) void {
